@@ -2,21 +2,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-
 from ta.trend import EMAIndicator, ADXIndicator
 from ta.momentum import StochasticOscillator
 
-# Configuração da Página
 st.set_page_config(layout="wide", page_title="SETUP RICBRASIL")
 
-# Parâmetros de Backtest padrão
 STOPS = {
     "ACAO": {"loss": 0.05, "gains": 0.08},
     "BDR_FII": {"loss": 0.04, "gains": 0.06}
 }
 
-# Amostragem mínima reduzida para "soltar" o scanner
-MIN_TRADES = 3 
+MIN_TRADES = 5 
 
 # ------------------------
 # Universo de Ativos
@@ -52,7 +48,7 @@ def carregar_universo():
     return acoes_100 + bdrs_50 + etfs_fiis_24
 
 # ------------------------
-# Lógica de Dados
+# Processamento
 # ------------------------
 
 def baixar_dados(ticker):
@@ -61,7 +57,7 @@ def baixar_dados(ticker):
 
 def calcular_indicadores(df):
     df = df.copy()
-    df["ema69"] = EMAIndicator(df["Close"], window=69).ema_indicator()
+    df["ema50"] = EMAIndicator(df["Close"], window=50).ema_indicator()
     adx = ADXIndicator(high=df["High"], low=df["Low"], close=df["Close"], window=14)
     df["diplus"] = adx.adx_pos()
     df["diminus"] = adx.adx_neg()
@@ -74,18 +70,8 @@ def calcular_semanal(df):
     semanal["ema29_sem"] = EMAIndicator(semanal["Close"], window=29).ema_indicator()
     adx_sem = ADXIndicator(high=semanal["High"], low=semanal["Low"], close=semanal["Close"], window=14)
     semanal["diplus_sem"] = adx_sem.adx_pos()
-    # Para verificar inclinação, precisamos do valor anterior
-    semanal["diplus_sem_prev"] = semanal["diplus_sem"].shift(1)
+    semanal["diminus_sem"] = adx_sem.adx_neg()
     return semanal.dropna()
-
-def candle_valido(df, i):
-    o, c, h, l = df["Open"].iloc[i], df["Close"].iloc[i], df["High"].iloc[i], df["Low"].iloc[i]
-    prev_high = df["High"].iloc[i-1]
-    rng = h - l
-    if rng == 0: return False
-    corpo_pct = abs(c - o) / rng
-    # Filtro: 35% de corpo e fechamento acima da máxima anterior
-    return c > o and corpo_pct > 0.35 and c > (l + 0.6*rng) and c > prev_high
 
 def localizar_setups(df, semanal):
     sinais = []
@@ -97,24 +83,25 @@ def localizar_setups(df, semanal):
         row = df.iloc[i]
         sem_row = sem_data.iloc[-1]
         
-        # --- FILTROS SETUP RICBRASIL ---
-        c1 = row["Close"] > row["ema69"]  # Diário acima da EMA 69
-        c2 = sem_row["Close"] > sem_row["ema29_sem"]  # Semanal acima da EMA 29
+        # Filtros de Tendência (Diária e Semanal)
+        c1 = row["Close"] > row["ema50"]
+        c2 = sem_row["Close"] > sem_row["ema29_sem"]
         
-        # REGRA ATUALIZADA: D+ Semanal não pode estar caindo (Inclinação >= 0)
-        c3 = sem_row["diplus_sem"] >= sem_row["diplus_sem_prev"]
+        # Filtro DI Semanal (Exigência D+ > D-)
+        c3 = sem_row["diplus_sem"] > sem_row["diminus_sem"]
         
-        c4 = row["diplus"] > row["diminus"]  # Diário com força compradora
-        c5 = row["stoch_k"] > 25  # Saindo da zona de exaustão
-        c6 = candle_valido(df, i) # Gatilho de preço
+        # Filtro DI Diário
+        c4 = row["diplus"] > row["diminus"]
+        
+        # Filtro Momento (Estocástico)
+        c5 = row["stoch_k"] > 25
+        
+        # Gatilho: Apenas candle de alta (Removido filtro de "força" rígido)
+        c6 = row["Close"] > row["Open"]
         
         if all([c1, c2, c3, c4, c5, c6]):
             sinais.append(i)
     return sinais
-
-# ------------------------
-# Simulação
-# ------------------------
 
 def rodar_simulacao(df, sinais, sl, sg):
     res = []
@@ -127,11 +114,7 @@ def rodar_simulacao(df, sinais, sl, sg):
             if df["High"].iloc[j] >= alvo:
                 res.append(sg); break
     if not res: return None
-    return {
-        "trades": len(res), 
-        "winrate": len([x for x in res if x > 0])/len(res), 
-        "expectativa": np.mean(res)
-    }
+    return {"trades": len(res), "winrate": len([x for x in res if x > 0])/len(res), "expectativa": np.mean(res)}
 
 # ------------------------
 # Interface
@@ -140,16 +123,16 @@ def rodar_simulacao(df, sinais, sl, sg):
 st.title("🛡️ SETUP RICBRASIL")
 st.markdown("---")
 
-tipo = st.selectbox("Universo", ["ACAO", "BDR_FII"])
+tipo = st.selectbox("Grupo de Ativos", ["ACAO", "BDR_FII"])
 
-if st.button("🚀 INICIAR VARREDURA"):
+if st.button("🚀 EXECUTAR SCANNER"):
     ativos = carregar_universo()
     progresso = st.progress(0)
     resultados = []
     status = st.empty()
 
     for idx, t in enumerate(ativos):
-        status.text(f"🔍 Analisando: {t}")
+        status.text(f"Analisando: {t}")
         try:
             dados = baixar_dados(t)
             if len(dados) < 200: continue
@@ -174,7 +157,12 @@ if st.button("🚀 INICIAR VARREDURA"):
 
     status.empty()
     if resultados:
-        st.success(f"Encontrados {len(resultados)} ativos com expectativa positiva!")
+        st.success(f"Sucesso! {len(resultados)} ativos encontrados.")
         st.dataframe(pd.DataFrame(resultados).sort_values("Expectativa", ascending=False), use_container_width=True)
     else:
-        st.warning("Filtros ainda muito restritivos para o momento atual do mercado.")
+        st.warning("Nenhum ativo atendeu ao critério DI+ > DI- Semanal com as médias atuais.")
+
+
+
+
+
