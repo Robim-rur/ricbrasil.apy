@@ -7,7 +7,7 @@ try:
     import yfinance as yf
     import pandas_ta as ta
 except ImportError:
-    st.error("Erro: Bibliotecas faltando. Verifique o requirements.txt")
+    st.error("Erro: Bibliotecas faltando no servidor. Verifique o requirements.txt")
     st.stop()
 
 # =====================================================
@@ -15,17 +15,45 @@ except ImportError:
 # =====================================================
 st.set_page_config(page_title="RICBRASIL ELITE - 2026", layout="wide")
 
-# (Listas de ativos permanecem as mesmas - omitidas para brevidade, mas devem estar no seu código)
-from ativos import ativos_scan # Ou cole suas listas aqui como antes
+# =====================================================
+# LISTAS DE ATIVOS (Integradas para evitar erro de importação)
+# =====================================================
+acoes_100 = [
+    "RRRP3.SA","ALOS3.SA","ALPA4.SA","ABEV3.SA","ARZZ3.SA","ASAI3.SA","AZUL4.SA","B3SA3.SA","BBAS3.SA","BBDC3.SA",
+    "BBDC4.SA","BBSE3.SA","BEEF3.SA","BPAC11.SA","BRAP4.SA","BRFS3.SA","BRKM5.SA","CCRO3.SA","CMIG4.SA","CMIN3.SA",
+    "COGN3.SA","CPFE3.SA","CPLE6.SA","CRFB3.SA","CSAN3.SA","CSNA3.SA","CYRE3.SA","DXCO3.SA","EGIE3.SA","ELET3.SA",
+    "ELET6.SA","EMBR3.SA","ENEV3.SA","ENGI11.SA","EQTL3.SA","EZTC3.SA","FLRY3.SA","GGBR4.SA","GOAU4.SA","GOLL4.SA",
+    "HAPV3.SA","HYPE3.SA","ITSA4.SA","ITUB4.SA","JBSS3.SA","KLBN11.SA","LREN3.SA","LWSA3.SA","MGLU3.SA","MRFG3.SA",
+    "MRVE3.SA","MULT3.SA","NTCO3.SA","PETR3.SA","PETR4.SA","PRIO3.SA","RADL3.SA","RAIL3.SA","RAIZ4.SA","RENT3.SA",
+    "RECV3.SA","SANB11.SA","SBSP3.SA","SLCE3.SA","SMTO3.SA","SUZB3.SA","TAEE11.SA","TIMS3.SA","TOTS3.SA","TRPL4.SA",
+    "UGPA3.SA","USIM5.SA","VALE3.SA","VIVT3.SA","VIVA3.SA","WEGE3.SA","YDUQ3.SA","AURE3.SA","BHIA3.SA","CASH3.SA",
+    "CVCB3.SA","DIRR3.SA","ENAT3.SA","GMAT3.SA","IFCM3.SA","INTB3.SA","JHSF3.SA","KEPL3.SA","MOVI3.SA","ORVR3.SA",
+    "PETZ3.SA","PLAS3.SA","POMO4.SA","POSI3.SA","RANI3.SA","RAPT4.SA","STBP3.SA","TEND3.SA","TUPY3.SA",
+    "BRSR6.SA","CXSE3.SA"
+]
+
+bdrs_50 = [
+    "AAPL34.SA","AMZO34.SA","GOGL34.SA","MSFT34.SA","TSLA34.SA","META34.SA","NFLX34.SA","NVDC34.SA","MELI34.SA",
+    "BABA34.SA","DISB34.SA","PYPL34.SA","JNJB34.SA","PGCO34.SA","KOCH34.SA","VISA34.SA","WMTB34.SA","NIKE34.SA",
+    "ADBE34.SA","AVGO34.SA","CSCO34.SA","COST34.SA","CVSH34.SA","GECO34.SA","GSGI34.SA","HDCO34.SA","INTC34.SA",
+    "JPMC34.SA","MAEL34.SA","MCDP34.SA","MDLZ34.SA","MRCK34.SA","ORCL34.SA","PEP334.SA","PFIZ34.SA","PMIC34.SA",
+    "QCOM34.SA","SBUX34.SA","TGTB34.SA","TMOS34.SA","TXN34.SA","UNHH34.SA","UPSB34.SA","VZUA34.SA",
+    "ABTT34.SA","AMGN34.SA","AXPB34.SA","BAOO34.SA","CATP34.SA","HONB34.SA"
+]
+
+etfs_fiis_24 = [
+    "BOVA11.SA","IVVB11.SA","SMAL11.SA","HASH11.SA","GOLD11.SA","GARE11.SA","HGLG11.SA","XPLG11.SA","VILG11.SA",
+    "BRCO11.SA","BTLG11.SA","XPML11.SA","VISC11.SA","HSML11.SA","MALL11.SA","KNRI11.SA","JSRE11.SA","PVBI11.SA",
+    "HGRE11.SA","MXRF11.SA","KNCR11.SA","KNIP11.SA","CPTS11.SA","IRDM11.SA",
+    "DIVO11.SA","NDIV11.SA","SPUB11.SA"
+]
+
+ativos_scan = sorted(set(acoes_100 + bdrs_50 + etfs_fiis_24))
 
 # =====================================================
-# MOTOR DE BACKTEST - RIGOR MÁXIMO
+# MOTOR DE BACKTEST - RIGOR MÁXIMO (ELITE)
 # =====================================================
 def calcular_estatistica_elite(df, sinais, stop_loss=0.04, stop_gain=0.08):
-    """
-    Rigor Ricardo Brasil: Payoff 2:1
-    Exige amostragem e consistência.
-    """
     resultados = []
     if not sinais: return 0, 0, 0
     
@@ -35,8 +63,7 @@ def calcular_estatistica_elite(df, sinais, stop_loss=0.04, stop_gain=0.08):
         stop = entrada * (1 - stop_loss)
         alvo = entrada * (1 + stop_gain)
         
-        # Simulação de saída
-        for j in range(i + 1, min(i + 22, len(df))): # Limite de 1 mês para o trade
+        for j in range(i + 1, min(i + 22, len(df))): 
             if df["Low"].iloc[j] <= stop:
                 resultados.append(-stop_loss)
                 break
@@ -44,29 +71,25 @@ def calcular_estatistica_elite(df, sinais, stop_loss=0.04, stop_gain=0.08):
                 resultados.append(stop_gain)
                 break
                 
-    # RIGOR: Mínimo de 10 trades históricos para validar
     if len(resultados) < 10: return 0, 0, len(resultados)
     
     win_rate = len([r for r in resultados if r > 0]) / len(resultados)
     expectativa = np.mean(resultados)
-    
     return win_rate, expectativa, len(resultados)
 
 # =====================================================
-# ANALISADORES DE SETUPS COM FILTROS DE TENDÊNCIA 2026
+# ANALISADOR DE ATIVOS
 # =====================================================
 def analisar_ativo_elite(df_d, df_w, ticker):
     resultados = []
     
-    # Adicionando ADX para medir força da tendência
+    # Cálculos Diários
     df_d.ta.adx(append=True)
-    df_d["EMA50"] = ta.ema(df_d["Close"], length=50) # EMA 50 é o suporte institucional em 2026
+    df_d["EMA50"] = ta.ema(df_d["Close"], length=50)
     
-    # 1. Setup Diário (123 / Inside) - RIGOR ADICIONAL
     if len(df_d) > 50:
-        # Só opera se ADX > 20 (Tendência real)
+        # Filtro de Tendência e Força (ADX > 20)
         if df_d["ADX_14"].iloc[-1] > 20 and df_d["Close"].iloc[-1] > df_d["EMA50"].iloc[-1]:
-            
             c1, c2, c3 = df_d.iloc[-3], df_d.iloc[-2], df_d.iloc[-1]
             is_123 = c2["Low"] < c1["Low"] and c3["Low"] > c2["Low"]
             is_inside = c3["High"] <= c2["High"] and c3["Low"] >= c2["Low"]
@@ -74,23 +97,16 @@ def analisar_ativo_elite(df_d, df_w, ticker):
             if is_123 or is_inside:
                 sinais_hist = []
                 for k in range(50, len(df_d)-5):
-                    # Filtro histórico simplificado para o backtest
                     if df_d["Close"].iloc[k] > df_d["EMA50"].iloc[k]:
                         sinais_hist.append(k)
                 
                 wr, exp, n = calcular_estatistica_elite(df_d, sinais_hist)
                 
-                # RIGOR RICBRASIL: WR > 65% e Expectativa robusta
+                # RIGOR MÁXIMO: WR >= 65% e Expectativa Positiva Relevante
                 if wr >= 0.65 and exp > 0.01:
-                    resultados.append({
-                        "Ativo": ticker, 
-                        "Setup": "Diário Elite", 
-                        "WinRate": wr, 
-                        "Expectativa": exp, 
-                        "Trades": n
-                    })
+                    resultados.append({"Ativo": ticker, "Setup": "Diário Elite", "WR": wr, "Exp": exp, "Trades": n})
 
-    # 2. Setup Semanal (OBV + EMA21)
+    # Cálculos Semanais
     df_w["EMA21"] = ta.ema(df_w["Close"], length=21)
     df_w.ta.obv(append=True)
     
@@ -98,7 +114,6 @@ def analisar_ativo_elite(df_d, df_w, ticker):
         if df_w["Close"].iloc[-1] > df_w["EMA21"].iloc[-1] and df_w["OBV"].iloc[-1] > df_w["OBV"].rolling(10).mean().iloc[-1]:
             max_10 = df_w["High"].rolling(10).max().iloc[-2]
             if df_w["Close"].iloc[-1] > max_10:
-                
                 sinais_hist_w = []
                 for k in range(50, len(df_w)-5):
                     if df_w["Close"].iloc[k] > df_w["High"].rolling(10).max().iloc[k-1]:
@@ -106,15 +121,9 @@ def analisar_ativo_elite(df_d, df_w, ticker):
                 
                 wr, exp, n = calcular_estatistica_elite(df_w, sinais_hist_w)
                 
-                # RIGOR SEMANAL: WR > 70% (Position exige mais acerto)
+                # RIGOR SEMANAL: WR >= 70%
                 if wr >= 0.70 and exp > 0.02:
-                    resultados.append({
-                        "Ativo": ticker, 
-                        "Setup": "Semanal Elite", 
-                        "WinRate": wr, 
-                        "Expectativa": exp, 
-                        "Trades": n
-                    })
+                    resultados.append({"Ativo": ticker, "Setup": "Semanal Elite", "WR": wr, "Exp": exp, "Trades": n})
 
     return resultados
 
@@ -123,16 +132,12 @@ def analisar_ativo_elite(df_d, df_w, ticker):
 # =====================================================
 st.title("🛡️ RICBRASIL ELITE - Scanner 2026")
 st.markdown("---")
-st.sidebar.header("Parâmetros de Rigor")
-st.sidebar.write("- Backtest: 5 Anos")
-st.sidebar.write("- Win Rate Mínimo: 65%")
-st.sidebar.write("- Amostragem Mínima: 10 trades")
 
 if st.button("🚀 EXECUTAR VARREDURA DE ALTA PRECISÃO"):
     res_final = []
     progress = st.progress(0)
     
-    # Downloads (Aumentado para 5 anos para o rigor do backtest)
+    # Downloads (5 anos para Diário, 8 anos para Semanal para garantir o backtest)
     dados_d = yf.download(ativos_scan, period="5y", interval="1d", group_by="ticker", progress=False)
     dados_w = yf.download(ativos_scan, period="8y", interval="1wk", group_by="ticker", progress=False)
 
@@ -148,12 +153,10 @@ if st.button("🚀 EXECUTAR VARREDURA DE ALTA PRECISÃO"):
 
     if res_final:
         df_res = pd.DataFrame(res_final)
-        df_res["WinRate (%)"] = (df_res["WinRate"] * 100).round(1)
-        df_res["Exp. Matemática (%)"] = (df_res["Expectativa"] * 100).round(2)
-        df_res = df_res.sort_values(by="Expectativa", ascending=False)
-        
-        st.success(f"Filtro aplicado! Restaram apenas {len(df_res)} ativos de alta confiança.")
-        st.dataframe(df_res[["Ativo", "Setup", "WinRate (%)", "Exp. Matemática (%)", "Trades"]], use_container_width=True)
+        df_res["WinRate %"] = (df_res["WR"] * 100).round(1)
+        df_res["Exp. Matemática %"] = (df_res["Exp"] * 100).round(2)
+        df_res = df_res.sort_values(by="Exp", ascending=False)
+        st.success(f"Filtro aplicado! {len(df_res)} ativos de alta confiança encontrados.")
+        st.dataframe(df_res[["Ativo", "Setup", "WinRate %", "Exp. Matemática %", "Trades"]], use_container_width=True)
     else:
-        st.warning("Nenhum ativo atingiu o nível ELITE de probabilidade hoje.")
-
+        st.warning("Nenhum ativo atingiu o nível ELITE hoje.")
