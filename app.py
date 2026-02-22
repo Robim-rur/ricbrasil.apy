@@ -9,16 +9,14 @@ from ta.momentum import StochasticOscillator
 # Configuração da Página
 st.set_page_config(layout="wide", page_title="SETUP RICBRASIL")
 
+# Parâmetros de Backtest padrão
 STOPS = {
     "ACAO": {"loss": 0.05, "gains": 0.08},
     "BDR_FII": {"loss": 0.04, "gains": 0.06}
 }
 
-STOP_LOSS_CANDIDATOS = [0.03, 0.04, 0.05, 0.06]
-STOP_GAIN_CANDIDATOS = [0.04, 0.05, 0.06, 0.07, 0.08, 0.10, 0.12]
-
-# Amostragem mínima para validar estatística
-MIN_TRADES = 5 
+# Amostragem mínima reduzida para "soltar" o scanner
+MIN_TRADES = 3 
 
 # ------------------------
 # Universo de Ativos
@@ -63,26 +61,22 @@ def baixar_dados(ticker):
 
 def calcular_indicadores(df):
     df = df.copy()
-    # EMA 69 Diária
     df["ema69"] = EMAIndicator(df["Close"], window=69).ema_indicator()
-    # ADX Diário
     adx = ADXIndicator(high=df["High"], low=df["Low"], close=df["Close"], window=14)
     df["diplus"] = adx.adx_pos()
     df["diminus"] = adx.adx_neg()
-    # Estocástico Diário
     stoch = StochasticOscillator(high=df["High"], low=df["Low"], close=df["Close"], window=14, smooth_window=3)
     df["stoch_k"] = stoch.stoch()
     return df
 
 def calcular_semanal(df):
     semanal = df.resample("W-FRI").last().copy()
-    # EMA 29 Semanal
     semanal["ema29_sem"] = EMAIndicator(semanal["Close"], window=29).ema_indicator()
-    # ADX Semanal para o filtro solicitado (DI+ > DI-)
     adx_sem = ADXIndicator(high=semanal["High"], low=semanal["Low"], close=semanal["Close"], window=14)
     semanal["diplus_sem"] = adx_sem.adx_pos()
-    semanal["diminus_sem"] = adx_sem.adx_neg()
-    return semanal[["Close", "ema29_sem", "diplus_sem", "diminus_sem"]]
+    # Para verificar inclinação, precisamos do valor anterior
+    semanal["diplus_sem_prev"] = semanal["diplus_sem"].shift(1)
+    return semanal.dropna()
 
 def candle_valido(df, i):
     o, c, h, l = df["Open"].iloc[i], df["Close"].iloc[i], df["High"].iloc[i], df["Low"].iloc[i]
@@ -90,7 +84,7 @@ def candle_valido(df, i):
     rng = h - l
     if rng == 0: return False
     corpo_pct = abs(c - o) / rng
-    # Filtro Expert: 35% de corpo e fechamento acima da máxima anterior
+    # Filtro: 35% de corpo e fechamento acima da máxima anterior
     return c > o and corpo_pct > 0.35 and c > (l + 0.6*rng) and c > prev_high
 
 def localizar_setups(df, semanal):
@@ -104,23 +98,17 @@ def localizar_setups(df, semanal):
         sem_row = sem_data.iloc[-1]
         
         # --- FILTROS SETUP RICBRASIL ---
-        # 1. Tendência: Diário > EMA69 E Semanal > EMA29
-        t_diaria = row["Close"] > row["ema69"]
-        t_semanal = sem_row["Close"] > sem_row["ema29_sem"]
+        c1 = row["Close"] > row["ema69"]  # Diário acima da EMA 69
+        c2 = sem_row["Close"] > sem_row["ema29_sem"]  # Semanal acima da EMA 29
         
-        # 2. Força Semanal: DI+ > DI- no Semanal (Solicitado)
-        f_semanal = sem_row["diplus_sem"] > sem_row["diminus_sem"]
+        # REGRA ATUALIZADA: D+ Semanal não pode estar caindo (Inclinação >= 0)
+        c3 = sem_row["diplus_sem"] >= sem_row["diplus_sem_prev"]
         
-        # 3. Força Diária: DI+ > DI- no Diário
-        f_diaria = row["diplus"] > row["diminus"]
+        c4 = row["diplus"] > row["diminus"]  # Diário com força compradora
+        c5 = row["stoch_k"] > 25  # Saindo da zona de exaustão
+        c6 = candle_valido(df, i) # Gatilho de preço
         
-        # 4. Momento: Estocástico Diário > 25 (Saindo da sobrevenda)
-        momento = row["stoch_k"] > 25
-        
-        # 5. Gatilho: Candle de força rompendo máxima
-        gatilho = candle_valido(df, i)
-        
-        if all([t_diaria, t_semanal, f_semanal, f_diaria, momento, gatilho]):
+        if all([c1, c2, c3, c4, c5, c6]):
             sinais.append(i)
     return sinais
 
@@ -129,21 +117,20 @@ def localizar_setups(df, semanal):
 # ------------------------
 
 def rodar_simulacao(df, sinais, sl, sg):
-    res, dur = [], []
+    res = []
     for i in sinais:
         ent = df["Close"].iloc[i]
         stop, alvo = ent * (1-sl), ent * (1+sg)
         for j in range(i+1, len(df)):
             if df["Low"].iloc[j] <= stop:
-                res.append(-sl); dur.append(j-i); break
+                res.append(-sl); break
             if df["High"].iloc[j] >= alvo:
-                res.append(sg); dur.append(j-i); break
+                res.append(sg); break
     if not res: return None
     return {
         "trades": len(res), 
         "winrate": len([x for x in res if x > 0])/len(res), 
-        "expectativa": np.mean(res),
-        "payoff": (np.mean([x for x in res if x > 0])/abs(np.mean([x for x in res if x < 0]))) if len([x for x in res if x < 0]) > 0 else 0
+        "expectativa": np.mean(res)
     }
 
 # ------------------------
@@ -153,17 +140,16 @@ def rodar_simulacao(df, sinais, sl, sg):
 st.title("🛡️ SETUP RICBRASIL")
 st.markdown("---")
 
-tipo = st.selectbox("Selecione o Universo de Ativos", ["ACAO", "BDR_FII"])
+tipo = st.selectbox("Universo", ["ACAO", "BDR_FII"])
 
 if st.button("🚀 INICIAR VARREDURA"):
     ativos = carregar_universo()
     progresso = st.progress(0)
     resultados = []
-    
-    status_text = st.empty()
+    status = st.empty()
 
     for idx, t in enumerate(ativos):
-        status_text.text(f"Analisando: {t}")
+        status.text(f"🔍 Analisando: {t}")
         try:
             dados = baixar_dados(t)
             if len(dados) < 200: continue
@@ -181,18 +167,14 @@ if st.button("🚀 INICIAR VARREDURA"):
                         "Ativo": t,
                         "Sinais (5 anos)": backtest["trades"],
                         "Win Rate": f"{round(backtest['winrate']*100,1)}%",
-                        "Expectativa": round(backtest['expectativa'], 4),
-                        "Payoff": round(backtest['payoff'], 2)
+                        "Expectativa": f"{round(backtest['expectativa']*100, 2)}%"
                     })
         except: pass
         progresso.progress((idx+1)/len(ativos))
 
-    status_text.empty()
-    
+    status.empty()
     if resultados:
-        st.success(f"Varredura concluída! {len(resultados)} ativos encontrados.")
-        df_final = pd.DataFrame(resultados).sort_values("Expectativa", ascending=False)
-        st.dataframe(df_final, use_container_width=True)
+        st.success(f"Encontrados {len(resultados)} ativos com expectativa positiva!")
+        st.dataframe(pd.DataFrame(resultados).sort_values("Expectativa", ascending=False), use_container_width=True)
     else:
-        st.error("Nenhum ativo passou nos critérios rigorosos do SETUP RICBRASIL.")
-        st.info("Nota: Filtro Semanal (EMA29 + DMI) ativo. O mercado pode estar em momento de correção no longo prazo.")
+        st.warning("Filtros ainda muito restritivos para o momento atual do mercado.")
