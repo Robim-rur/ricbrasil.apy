@@ -1,166 +1,161 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import yfinance as yf
-from ta.trend import EMAIndicator, ADXIndicator
-from ta.momentum import StochasticOscillator
+import pandas_ta as ta
+import numpy as np
 
-# Configuração da Página
-st.set_page_config(layout="wide", page_title="SETUP RICBRASIL")
+# =====================================================
+# CONFIGURAÇÃO DA PÁGINA
+# =====================================================
+st.set_page_config(
+    page_title="SETUP RICBRASIL - Scanner Estatístico",
+    layout="wide"
+)
 
-STOPS = {
-    "ACAO": {"loss": 0.05, "gains": 0.08},
-    "BDR_FII": {"loss": 0.04, "gains": 0.06}
-}
+# =====================================================
+# LISTAS DE ATIVOS
+# =====================================================
+acoes_100 = [
+    "RRRP3.SA","ALOS3.SA","ALPA4.SA","ABEV3.SA","ARZZ3.SA","ASAI3.SA","AZUL4.SA","B3SA3.SA","BBAS3.SA","BBDC3.SA",
+    "BBDC4.SA","BBSE3.SA","BEEF3.SA","BPAC11.SA","BRAP4.SA","BRFS3.SA","BRKM5.SA","CCRO3.SA","CMIG4.SA","CMIN3.SA",
+    "COGN3.SA","CPFE3.SA","CPLE6.SA","CRFB3.SA","CSAN3.SA","CSNA3.SA","CYRE3.SA","DXCO3.SA","EGIE3.SA","ELET3.SA",
+    "ELET6.SA","EMBR3.SA","ENEV3.SA","ENGI11.SA","EQTL3.SA","EZTC3.SA","FLRY3.SA","GGBR4.SA","GOAU4.SA","GOLL4.SA",
+    "HAPV3.SA","HYPE3.SA","ITSA4.SA","ITUB4.SA","JBSS3.SA","KLBN11.SA","LREN3.SA","LWSA3.SA","MGLU3.SA","MRFG3.SA",
+    "MRVE3.SA","MULT3.SA","NTCO3.SA","PETR3.SA","PETR4.SA","PRIO3.SA","RADL3.SA","RAIL3.SA","RAIZ4.SA","RENT3.SA",
+    "RECV3.SA","SANB11.SA","SBSP3.SA","SLCE3.SA","SMTO3.SA","SUZB3.SA","TAEE11.SA","TIMS3.SA","TOTS3.SA","TRPL4.SA",
+    "UGPA3.SA","USIM5.SA","VALE3.SA","VIVT3.SA","VIVA3.SA","WEGE3.SA","YDUQ3.SA","AURE3.SA","BHIA3.SA","CASH3.SA",
+    "CVCB3.SA","DIRR3.SA","ENAT3.SA","GMAT3.SA","IFCM3.SA","INTB3.SA","JHSF3.SA","KEPL3.SA","MOVI3.SA","ORVR3.SA",
+    "PETZ3.SA","PLAS3.SA","POMO4.SA","POSI3.SA","RANI3.SA","RAPT4.SA","STBP3.SA","TEND3.SA","TUPY3.SA",
+    "BRSR6.SA","CXSE3.SA"
+]
 
-# Amostragem mínima para validar o setup
-MIN_TRADES = 5 
+bdrs_50 = [
+    "AAPL34.SA","AMZO34.SA","GOGL34.SA","MSFT34.SA","TSLA34.SA","META34.SA","NFLX34.SA","NVDC34.SA","MELI34.SA",
+    "BABA34.SA","DISB34.SA","PYPL34.SA","JNJB34.SA","PGCO34.SA","KOCH34.SA","VISA34.SA","WMTB34.SA","NIKE34.SA",
+    "ADBE34.SA","AVGO34.SA","CSCO34.SA","COST34.SA","CVSH34.SA","GECO34.SA","GSGI34.SA","HDCO34.SA","INTC34.SA",
+    "JPMC34.SA","MAEL34.SA","MCDP34.SA","MDLZ34.SA","MRCK34.SA","ORCL34.SA","PEP334.SA","PFIZ34.SA","PMIC34.SA",
+    "QCOM34.SA","SBUX34.SA","TGTB34.SA","TMOS34.SA","TXN34.SA","UNHH34.SA","UPSB34.SA","VZUA34.SA",
+    "ABTT34.SA","AMGN34.SA","AXPB34.SA","BAOO34.SA","CATP34.SA","HONB34.SA"
+]
 
-# ------------------------
-# Universo de Ativos
-# ------------------------
+etfs_fiis_24 = [
+    "BOVA11.SA","IVVB11.SA","SMAL11.SA","HASH11.SA","GOLD11.SA","GARE11.SA","HGLG11.SA","XPLG11.SA","VILG11.SA",
+    "BRCO11.SA","BTLG11.SA","XPML11.SA","VISC11.SA","HSML11.SA","MALL11.SA","KNRI11.SA","JSRE11.SA","PVBI11.SA",
+    "HGRE11.SA","MXRF11.SA","KNCR11.SA","KNIP11.SA","CPTS11.SA","IRDM11.SA",
+    "DIVO11.SA","NDIV11.SA","SPUB11.SA"
+]
 
-def carregar_universo():
-    acoes_100 = [
-        "RRRP3.SA","ALOS3.SA","ALPA4.SA","ABEV3.SA","ARZZ3.SA","ASAI3.SA","AZUL4.SA","B3SA3.SA","BBAS3.SA","BBDC3.SA",
-        "BBDC4.SA","BBSE3.SA","BEEF3.SA","BPAC11.SA","BRAP4.SA","BRFS3.SA","BRKM5.SA","CCRO3.SA","CMIG4.SA","CMIN3.SA",
-        "COGN3.SA","CPFE3.SA","CPLE6.SA","CRFB3.SA","CSAN3.SA","CSNA3.SA","CYRE3.SA","DXCO3.SA","EGIE3.SA","ELET3.SA",
-        "ELET6.SA","EMBR3.SA","ENEV3.SA","ENGI11.SA","EQTL3.SA","EZTC3.SA","FLRY3.SA","GGBR4.SA","GOAU4.SA","GOLL4.SA",
-        "HAPV3.SA","HYPE3.SA","ITSA4.SA","ITUB4.SA","JBSS3.SA","KLBN11.SA","LREN3.SA","LWSA3.SA","MGLU3.SA","MRFG3.SA",
-        "MRVE3.SA","MULT3.SA","NTCO3.SA","PETR3.SA","PETR4.SA","PRIO3.SA","RADL3.SA","RAIL3.SA","RAIZ4.SA","RENT3.SA",
-        "RECV3.SA","SANB11.SA","SBSP3.SA","SLCE3.SA","SMTO3.SA","SUZB3.SA","TAEE11.SA","TIMS3.SA","TOTS3.SA","TRPL4.SA",
-        "UGPA3.SA","USIM5.SA","VALE3.SA","VIVT3.SA","VIVA3.SA","WEGE3.SA","YDUQ3.SA","AURE3.SA","BHIA3.SA","CASH3.SA",
-        "CVCB3.SA","DIRR3.SA","ENAT3.SA","GMAT3.SA","IFCM3.SA","INTB3.SA","JHSF3.SA","KEPL3.SA","MOVI3.SA","ORVR3.SA",
-        "PETZ3.SA","PLAS3.SA","POMO4.SA","POSI3.SA","RANI3.SA","RAPT4.SA","STBP3.SA","TEND3.SA","TUPY3.SA",
-        "BRSR6.SA","CXSE3.SA"
-    ]
-    bdrs_50 = [
-        "AAPL34.SA","AMZO34.SA","GOGL34.SA","MSFT34.SA","TSLA34.SA","META34.SA","NFLX34.SA","NVDC34.SA","MELI34.SA",
-        "BABA34.SA","DISB34.SA","PYPL34.SA","JNJB34.SA","PGCO34.SA","KOCH34.SA","VISA34.SA","WMTB34.SA","NIKE34.SA",
-        "ADBE34.SA","AVGO34.SA","CSCO34.SA","COST34.SA","CVSH34.SA","GECO34.SA","GSGI34.SA","HDCO34.SA","INTC34.SA",
-        "JPMC34.SA","MAEL34.SA","MCDP34.SA","MDLZ34.SA","MRCK34.SA","ORCL34.SA","PEP334.SA","PFIZ34.SA","PMIC34.SA",
-        "QCOM34.SA","SBUX34.SA","TGTB34.SA","TMOS34.SA","TXN34.SA","UNHH34.SA","UPSB34.SA","VZUA34.SA",
-        "ABTT34.SA","AMGN34.SA","AXPB34.SA","BAOO34.SA","CATP34.SA","HONB34.SA"
-    ]
-    etfs_fiis_24 = [
-        "BOVA11.SA","IVVB11.SA","SMAL11.SA","HASH11.SA","GOLD11.SA","GARE11.SA","HGLG11.SA","XPLG11.SA","VILG11.SA",
-        "BRCO11.SA","BTLG11.SA","XPML11.SA","VISC11.SA","HSML11.SA","MALL11.SA","KNRI11.SA","JSRE11.SA","PVBI11.SA",
-        "HGRE11.SA","MXRF11.SA","KNCR11.SA","KNIP11.SA","CPTS11.SA","IRDM11.SA","DIVO11.SA","NDIV11.SA","SPUB11.SA"
-    ]
-    return acoes_100 + bdrs_50 + etfs_fiis_24
+ativos_scan = sorted(set(acoes_100 + bdrs_50 + etfs_fiis_24))
 
-# ------------------------
-# Lógica do Scanner
-# ------------------------
-
-def baixar_dados(ticker):
-    df = yf.download(ticker, period="5y", auto_adjust=True, progress=False)
-    return df.dropna()
-
-def calcular_indicadores(df):
-    df = df.copy()
-    df["ema50"] = EMAIndicator(df["Close"], window=50).ema_indicator()
-    adx = ADXIndicator(high=df["High"], low=df["Low"], close=df["Close"], window=14)
-    df["diplus"] = adx.adx_pos()
-    df["diminus"] = adx.adx_neg()
-    stoch = StochasticOscillator(high=df["High"], low=df["Low"], close=df["Close"], window=14, smooth_window=3)
-    df["stoch_k"] = stoch.stoch()
-    return df
-
-def calcular_semanal(df):
-    semanal = df.resample("W-FRI").last().copy()
-    semanal["ema29_sem"] = EMAIndicator(semanal["Close"], window=29).ema_indicator()
-    adx_sem = ADXIndicator(high=semanal["High"], low=semanal["Low"], close=semanal["Close"], window=14)
-    semanal["diplus_sem"] = adx_sem.adx_pos()
-    # Pega o valor da semana anterior para calcular inclinação
-    semanal["diplus_sem_prev"] = semanal["diplus_sem"].shift(1)
-    return semanal.dropna()
-
-def localizar_setups(df, semanal):
-    sinais = []
-    for i in range(1, len(df)):
-        data = df.index[i]
-        sem_data = semanal[semanal.index <= data]
-        if sem_data.empty: continue
-        
-        row = df.iloc[i]
-        sem_row = sem_data.iloc[-1]
-        
-        # Filtros de Tendência
-        c1 = row["Close"] > row["ema50"]
-        c2 = sem_row["Close"] > sem_row["ema29_sem"]
-        
-        # FILTRO DE INCLINAÇÃO D+ SEMANAL (Solicitado: Não pode estar caindo)
-        c3 = sem_row["diplus_sem"] >= sem_row["diplus_sem_prev"]
-        
-        # Filtros Complementares
-        c4 = row["diplus"] > row["diminus"]
-        c5 = row["stoch_k"] > 25
-        c6 = row["Close"] > row["Open"] # Gatilho simples
-        
-        if all([c1, c2, c3, c4, c5, c6]):
-            sinais.append(i)
-    return sinais
-
-def rodar_simulacao(df, sinais, sl, sg):
-    res = []
-    for i in sinais:
-        ent = df["Close"].iloc[i]
-        stop, alvo = ent * (1-sl), ent * (1+sg)
-        for j in range(i+1, len(df)):
-            if df["Low"].iloc[j] <= stop:
-                res.append(-sl); break
-            if df["High"].iloc[j] >= alvo:
-                res.append(sg); break
-    if not res: return None
-    return {"trades": len(res), "winrate": len([x for x in res if x > 0])/len(res), "expectativa": np.mean(res)}
-
-# ------------------------
-# Interface Streamlit
-# ------------------------
-
-st.title("🛡️ SETUP RICBRASIL")
-st.markdown("---")
-
-tipo = st.selectbox("Escolha o Universo", ["ACAO", "BDR_FII"])
-
-if st.button("🚀 EXECUTAR SCANNER"):
-    ativos = carregar_universo()
-    progresso = st.progress(0)
+# =====================================================
+# MOTOR DE BACKTEST (LÓGICA RICARDO BRASIL)
+# =====================================================
+def calcular_estatistica(df, sinais, stop_loss=0.05, stop_gain=0.08):
+    """Calcula WinRate e Expectativa Matemática para os sinais encontrados"""
     resultados = []
-    status = st.empty()
-
-    for idx, t in enumerate(ativos):
-        status.text(f"🔍 Analisando: {t}")
-        try:
-            dados = baixar_dados(t)
-            if len(dados) < 200: continue
-            
-            df_ind = calcular_indicadores(dados)
-            df_sem = calcular_semanal(dados)
-            sinais = localizar_setups(df_ind, df_sem)
-            
-            if len(sinais) >= MIN_TRADES:
-                conf = STOPS[tipo]
-                backtest = rodar_simulacao(df_ind, sinais, conf["loss"], conf["gains"])
+    if not sinais: return 0, 0, 0
+    
+    for i in sinais:
+        entrada = df["Close"].iloc[i]
+        stop = entrada * (1 - stop_loss)
+        alvo = entrada * (1 + stop_gain)
+        
+        for j in range(i + 1, len(df)):
+            if df["Low"].iloc[j] <= stop:
+                resultados.append(-stop_loss)
+                break
+            if df["High"].iloc[j] >= alvo:
+                resultados.append(stop_gain)
+                break
                 
-                if backtest and backtest["expectativa"] > 0:
-                    resultados.append({
-                        "Ativo": t,
-                        "Sinais (5 anos)": backtest["trades"],
-                        "Win Rate": f"{round(backtest['winrate']*100,1)}%",
-                        "Expectativa": f"{round(backtest['expectativa']*100, 2)}%"
-                    })
+    if len(resultados) < 3: return 0, 0, len(resultados)
+    
+    win_rate = len([r for r in resultados if r > 0]) / len(resultados)
+    expectativa = np.mean(resultados)
+    return win_rate, expectativa, len(resultados)
+
+# =====================================================
+# ANALISADORES DE SETUPS
+# =====================================================
+
+def analisar_ativo(df_d, df_w, ticker):
+    resultados = []
+    
+    # --- SETUP DIÁRIO (123 / INSIDE) ---
+    df_d["EMA69"] = ta.ema(df_d["Close"], length=69)
+    if df_d["EMA69"].iloc[-1] > df_d["EMA69"].iloc[-2]:
+        c1, c2, c3 = df_d.iloc[-3], df_d.iloc[-2], df_d.iloc[-1]
+        is_123 = c2["Low"] < c1["Low"] and c3["Low"] > c2["Low"]
+        is_inside = c3["High"] <= c2["High"] and c3["Low"] >= c2["Low"]
+        
+        if is_123 or is_inside:
+            # Backtest histórico do setup neste ativo
+            sinais_hist = []
+            for k in range(50, len(df_d)-5):
+                prev1, prev2, curr = df_d.iloc[k-2], df_d.iloc[k-1], df_d.iloc[k]
+                if (prev2["Low"] < prev1["Low"] and curr["Low"] > prev2["Low"]) or \
+                   (curr["High"] <= prev2["High"] and curr["Low"] >= prev2["Low"]):
+                    sinais_hist.append(k)
+            
+            wr, exp, n = calcular_estatistica(df_d, sinais_hist)
+            if exp > 0:
+                resultados.append({"Ativo": ticker, "Setup": "Diário (123/Inside)", "WR": wr, "Exp": exp, "Trades": n})
+
+    # --- SETUP SEMANAL (OBV) ---
+    df_w["EMA69"] = ta.ema(df_w["Close"], length=69)
+    df_w["OBV"] = ta.obv(df_w["Close"], df_w["Volume"])
+    df_w["OBV_EMA21"] = ta.ema(df_w["OBV"], length=21)
+    
+    if df_w["EMA69"].iloc[-1] > df_w["EMA69"].iloc[-2] and df_w["OBV"].iloc[-1] > df_w["OBV_EMA21"].iloc[-1]:
+        max_10 = df_w["High"].rolling(10).max().iloc[-2]
+        if df_w["Close"].iloc[-1] > max_10:
+            # Backtest histórico semanal
+            sinais_hist_w = []
+            for k in range(50, len(df_w)-5):
+                if df_w["Close"].iloc[k] > df_w["High"].rolling(10).max().iloc[k-1]:
+                    sinais_hist_w.append(k)
+            
+            wr, exp, n = calcular_estatistica(df_w, sinais_hist_w)
+            if exp > 0:
+                resultados.append({"Ativo": ticker, "Setup": "Semanal (OBV)", "WR": wr, "Exp": exp, "Trades": n})
+
+    return resultados
+
+# =====================================================
+# INTERFACE E EXECUÇÃO
+# =====================================================
+st.title("🛡️ SETUP RICBRASIL - Scanner Probabilístico")
+st.write(f"Monitorando **{len(ativos_scan)}** ativos com backtest automático de 5 anos.")
+
+if st.button("🔍 Iniciar Varredura Estatística"):
+    res_final = []
+    progress = st.progress(0)
+    
+    # Downloads massivos para performance
+    dados_d = yf.download(ativos_scan, period="2y", interval="1d", group_by="ticker", progress=False)
+    dados_w = yf.download(ativos_scan, period="5y", interval="1wk", group_by="ticker", progress=False)
+
+    for i, ativo in enumerate(ativos_scan):
+        try:
+            df_d = dados_d[ativo].dropna()
+            df_w = dados_w[ativo].dropna()
+            items = analisar_ativo(df_d, df_w, ativo.replace(".SA", ""))
+            if items: res_final.extend(items)
         except: pass
-        progresso.progress((idx+1)/len(ativos))
+        progress.progress((i + 1) / len(ativos_scan))
 
-    status.empty()
-    if resultados:
-        st.success(f"Scanner finalizado! {len(resultados)} ativos encontrados.")
-        st.dataframe(pd.DataFrame(resultados).sort_values("Expectativa", ascending=False), use_container_width=True)
+    if res_final:
+        df_res = pd.DataFrame(res_final)
+        df_res["WR (%)"] = (df_res["WR"] * 100).round(1)
+        df_res["Exp. Matemática"] = df_res["Exp"].round(4)
+        
+        # Filtro Ricardo Brasil: Somente o que tem probabilidade real
+        df_res = df_res.sort_values(by="Exp. Matemática", ascending=False)
+        
+        st.subheader("📊 Ativos com Estatística a Favor (Expectativa > 0)")
+        st.dataframe(df_res[["Ativo", "Setup", "WR (%)", "Exp. Matemática", "Trades"]], use_container_width=True)
     else:
-        st.warning("Nenhum ativo encontrado com os parâmetros de inclinação e média atuais.")
-
+        st.warning("Nenhum ativo com sinal e estatística positiva no momento.")
 
 
 
