@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Tenta importar as bibliotecas e avisa se houver erro de instalação
+# Verificação de Bibliotecas
 try:
     import yfinance as yf
     import pandas_ta as ta
@@ -13,7 +13,7 @@ except ImportError:
 # =====================================================
 # CONFIGURAÇÃO DA PÁGINA
 # =====================================================
-st.set_page_config(page_title="SETUP RICBRASIL - Operacional", layout="wide")
+st.set_page_config(page_title="SETUP RICBRASIL - Regras Fixas", layout="wide")
 
 # =====================================================
 # LISTAS DE ATIVOS
@@ -31,110 +31,115 @@ acoes_100 = [
     "PETZ3.SA","PLAS3.SA","POMO4.SA","POSI3.SA","RANI3.SA","RAPT4.SA","STBP3.SA","TEND3.SA","TUPY3.SA",
     "BRSR6.SA","CXSE3.SA"
 ]
-bdrs_50 = [
+bdrs_fii = [
     "AAPL34.SA","AMZO34.SA","GOGL34.SA","MSFT34.SA","TSLA34.SA","META34.SA","NFLX34.SA","NVDC34.SA","MELI34.SA",
     "BABA34.SA","DISB34.SA","PYPL34.SA","JNJB34.SA","PGCO34.SA","KOCH34.SA","VISA34.SA","WMTB34.SA","NIKE34.SA",
     "ADBE34.SA","AVGO34.SA","CSCO34.SA","COST34.SA","CVSH34.SA","GECO34.SA","GSGI34.SA","HDCO34.SA","INTC34.SA",
     "JPMC34.SA","MAEL34.SA","MCDP34.SA","MDLZ34.SA","MRCK34.SA","ORCL34.SA","PEP334.SA","PFIZ34.SA","PMIC34.SA",
     "QCOM34.SA","SBUX34.SA","TGTB34.SA","TMOS34.SA","TXN34.SA","UNHH34.SA","UPSB34.SA","VZUA34.SA",
-    "ABTT34.SA","AMGN34.SA","AXPB34.SA","BAOO34.SA","CATP34.SA","HONB34.SA"
-]
-etfs_fiis_24 = [
+    "ABTT34.SA","AMGN34.SA","AXPB34.SA","BAOO34.SA","CATP34.SA","HONB34.SA",
     "BOVA11.SA","IVVB11.SA","SMAL11.SA","HASH11.SA","GOLD11.SA","GARE11.SA","HGLG11.SA","XPLG11.SA","VILG11.SA",
     "BRCO11.SA","BTLG11.SA","XPML11.SA","VISC11.SA","HSML11.SA","MALL11.SA","KNRI11.SA","JSRE11.SA","PVBI11.SA",
     "HGRE11.SA","MXRF11.SA","KNCR11.SA","KNIP11.SA","CPTS11.SA","IRDM11.SA"
 ]
 
-ativos_scan = sorted(set(acoes_100 + bdrs_50 + etfs_fiis_24))
+ativos_scan = sorted(set(acoes_100 + bdrs_fii))
 
 # =====================================================
-# MOTOR DE BACKTEST
+# MOTOR DE BACKTEST - REGRAS FIXAS DO USUÁRIO
 # =====================================================
-def calcular_estatistica(df, sinais, stop_loss=0.05, stop_gain=0.08):
+def calcular_estatistica_fixa(df, sinais, ticker):
+    """Aplica 5/8% para Ações e 4/6% para BDR/FII"""
     resultados = []
-    if not sinais: return 0, 0, 0
+    
+    # Define regras por tipo de ativo
+    is_bdr_fii = any(x in ticker for x in ["34", "11"])
+    sl = 0.04 if is_bdr_fii else 0.05
+    sg = 0.06 if is_bdr_fii else 0.08
+
+    if not sinais: return 0, 0, 0, sl, sg
+    
     for i in sinais:
         if i + 1 >= len(df): continue
         entrada = df["Close"].iloc[i]
-        stop = entrada * (1 - stop_loss)
-        alvo = entrada * (1 + stop_gain)
+        stop, alvo = entrada * (1 - sl), entrada * (1 + sg)
+        
         for j in range(i + 1, min(i + 30, len(df))):
             if df["Low"].iloc[j] <= stop:
-                resultados.append(-stop_loss); break
+                resultados.append(-sl); break
             if df["High"].iloc[j] >= alvo:
-                resultados.append(stop_gain); break
-    if len(resultados) < 6: return 0, 0, len(resultados)
-    return len([r for r in resultados if r > 0]) / len(resultados), np.mean(resultados), len(resultados)
+                resultados.append(sg); break
+                
+    if len(resultados) < 4: return 0, 0, len(resultados), sl, sg
+    
+    win_rate = len([r for r in resultados if r > 0]) / len(resultados)
+    expectativa = np.mean(resultados)
+    return win_rate, expectativa, len(resultados), sl, sg
 
 # =====================================================
-# ANALISADOR OPERACIONAL
+# ANALISADOR
 # =====================================================
 def analisar_ativo(df_d, df_w, ticker):
     resultados = []
     
-    # DIÁRIO
-    df_d["EMA21"] = ta.ema(df_d["Close"], length=21)
-    if len(df_d) > 30 and df_d["Close"].iloc[-1] > df_d["EMA21"].iloc[-1]:
+    # TENDÊNCIA (EMA 69)
+    df_d["EMA69"] = ta.ema(df_d["Close"], length=69)
+    if len(df_d) > 30 and df_d["Close"].iloc[-1] > df_d["EMA69"].iloc[-1]:
+        
         c1, c2, c3 = df_d.iloc[-3], df_d.iloc[-2], df_d.iloc[-1]
         is_123 = c2["Low"] < c1["Low"] and c3["Low"] > c2["Low"]
         is_inside = c3["High"] <= c2["High"] and c3["Low"] >= c2["Low"]
         
         if is_123 or is_inside:
-            sinais_hist = []
-            for k in range(30, len(df_d)-5):
-                if df_d["Close"].iloc[k] > df_d["EMA21"].iloc[k]: sinais_hist.append(k)
-            wr, exp, n = calcular_estatistica(df_d, sinais_hist)
-            if wr >= 0.55 and exp > 0:
-                entrada = round(max(c2["High"], c3["High"]), 2)
-                stop = round(min(c2["Low"], c3["Low"]), 2)
-                resultados.append({"Ativo": ticker, "Setup": "Diário (123/Inside)", "WR": wr, "Exp": exp, "Trades": n, "Entrada": entrada, "Stop": stop})
+            sinais_hist = [k for k in range(30, len(df_d)-5) if df_d["Close"].iloc[k] > df_d["EMA69"].iloc[k]]
+            wr, exp, n, sl_ativo, sg_ativo = calcular_estatistica_fixa(df_d, sinais_hist, ticker)
+            
+            ent = round(max(c2["High"], c3["High"]), 2)
+            alvo_p = round(ent * (1 + sg_ativo), 2)
+            stop_p = round(ent * (1 - sl_ativo), 2)
+            
+            # Ricardo Brasil: Só mostramos se a expectativa for positiva
+            if exp > 0:
+                resultados.append({
+                    "Ativo": ticker.replace(".SA", ""),
+                    "Setup": "Diário",
+                    "WR %": round(wr*100, 1),
+                    "Exp %": round(exp*100, 2),
+                    "Sinais": n,
+                    "Entrada (R$)": ent,
+                    "Alvo Gain (R$)": alvo_p,
+                    "Stop Loss (R$)": stop_p
+                })
 
-    # SEMANAL
-    df_w["EMA21"] = ta.ema(df_w["Close"], length=21)
-    df_w.ta.obv(append=True)
-    if len(df_w) > 20 and df_w["OBV"].iloc[-1] > df_w["OBV"].iloc[-2] and df_w["Close"].iloc[-1] > df_w["EMA21"].iloc[-1]:
-        max_10 = df_w["High"].rolling(10).max().iloc[-2]
-        if df_w["Close"].iloc[-1] > max_10:
-            sinais_hist_w = []
-            for k in range(30, len(df_w)-5):
-                if df_w["Close"].iloc[k] > df_w["High"].rolling(10).max().iloc[k-1]: sinais_hist_w.append(k)
-            wr, exp, n = calcular_estatistica(df_w, sinais_hist_w)
-            if wr >= 0.60 and exp > 0:
-                entrada = round(max_10, 2)
-                stop = round(df_w["Low"].iloc[-1], 2)
-                resultados.append({"Ativo": ticker, "Setup": "Semanal (OBV)", "WR": wr, "Exp": exp, "Trades": n, "Entrada": entrada, "Stop": stop})
     return resultados
 
 # =====================================================
 # INTERFACE
 # =====================================================
-st.title("🛡️ SETUP RICBRASIL - Operacional & Probabilístico")
-st.markdown("---")
+st.title("🛡️ SCANNER RICBRASIL - Regras Fixas")
+st.sidebar.write("### Suas Regras Ativas:")
+st.sidebar.info("**AÇÕES:** Loss 5% | Gain 8%\n\n**BDR/FII:** Loss 4% | Gain 6%")
 
-if st.button("🚀 INICIAR VARREDURA"):
+if st.button("🔍 EXECUTAR SCANNER"):
     res_final = []
     progress = st.progress(0)
+    
+    # Baixando dados dos últimos 3 anos para estatística robusta
     dados_d = yf.download(ativos_scan, period="3y", interval="1d", group_by="ticker", progress=False)
-    dados_w = yf.download(ativos_scan, period="5y", interval="1wk", group_by="ticker", progress=False)
 
     for i, ativo in enumerate(ativos_scan):
         try:
-            df_d, df_w = dados_d[ativo].dropna(), dados_w[ativo].dropna()
-            if not df_d.empty and not df_w.empty:
-                items = analisar_ativo(df_d, df_w, ativo.replace(".SA", ""))
+            df_d = dados_d[ativo].dropna()
+            if not df_d.empty:
+                # O setup semanal pode ser adicionado aqui depois, se desejar
+                items = analisar_ativo(df_d, None, ativo)
                 if items: res_final.extend(items)
         except: pass
         progress.progress((i + 1) / len(ativos_scan))
 
     if res_final:
-        df_res = pd.DataFrame(res_final)
-        df_res["WinRate %"] = (df_res["WR"] * 100).round(1)
-        df_res["Expectativa %"] = (df_res["Exp"] * 100).round(2)
-        df_res = df_res.sort_values(by="Exp", ascending=False)
-        st.success(f"Varredura concluída! {len(df_res)} ativos com sinal hoje.")
-        
-        # TABELA FINAL COM ENTRADA E STOP
-        st.dataframe(df_res[["Ativo", "Setup", "WinRate %", "Expectativa %", "Trades", "Entrada", "Stop"]], use_container_width=True)
-        st.info("💡 Sugestão: Priorize ativos com WinRate > 60% e Expectativa > 2.0%.")
+        df_res = pd.DataFrame(res_final).sort_values(by="Exp %", ascending=False)
+        st.success(f"Encontrados {len(df_res)} ativos que 'pagam a conta' com suas regras!")
+        st.dataframe(df_res, use_container_width=True)
     else:
-        st.warning("Nenhum ativo com estatística favorável encontrado hoje.")
+        st.warning("Nenhum ativo com sinal e estatística positiva para suas regras hoje.")
