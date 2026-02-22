@@ -2,18 +2,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Verificação de Bibliotecas
+# Tenta importar as bibliotecas e avisa se houver erro de instalação
 try:
     import yfinance as yf
     import pandas_ta as ta
 except ImportError:
-    st.error("Erro: Bibliotecas faltando. Verifique o requirements.txt")
+    st.error("Erro: Bibliotecas faltando no servidor. Verifique o requirements.txt")
     st.stop()
 
 # =====================================================
 # CONFIGURAÇÃO DA PÁGINA
 # =====================================================
-st.set_page_config(page_title="SETUP RICBRASIL - Estratégia Completa", layout="wide")
+st.set_page_config(page_title="SETUP RICBRASIL - Operacional", layout="wide")
 
 # =====================================================
 # LISTAS DE ATIVOS
@@ -48,9 +48,9 @@ etfs_fiis_24 = [
 ativos_scan = sorted(set(acoes_100 + bdrs_50 + etfs_fiis_24))
 
 # =====================================================
-# MOTOR ESTATÍSTICO
+# MOTOR DE BACKTEST
 # =====================================================
-def calcular_estatistica(df, sinais, stop_loss=0.05, stop_gain=0.10):
+def calcular_estatistica(df, sinais, stop_loss=0.05, stop_gain=0.08):
     resultados = []
     if not sinais: return 0, 0, 0
     for i in sinais:
@@ -72,7 +72,7 @@ def calcular_estatistica(df, sinais, stop_loss=0.05, stop_gain=0.10):
 def analisar_ativo(df_d, df_w, ticker):
     resultados = []
     
-    # DIÁRIO (EMA 21)
+    # DIÁRIO
     df_d["EMA21"] = ta.ema(df_d["Close"], length=21)
     if len(df_d) > 30 and df_d["Close"].iloc[-1] > df_d["EMA21"].iloc[-1]:
         c1, c2, c3 = df_d.iloc[-3], df_d.iloc[-2], df_d.iloc[-1]
@@ -80,38 +80,38 @@ def analisar_ativo(df_d, df_w, ticker):
         is_inside = c3["High"] <= c2["High"] and c3["Low"] >= c2["Low"]
         
         if is_123 or is_inside:
-            sinais_hist = [k for k in range(30, len(df_d)-5) if df_d["Close"].iloc[k] > df_d["EMA21"].iloc[k]]
+            sinais_hist = []
+            for k in range(30, len(df_d)-5):
+                if df_d["Close"].iloc[k] > df_d["EMA21"].iloc[k]: sinais_hist.append(k)
             wr, exp, n = calcular_estatistica(df_d, sinais_hist)
             if wr >= 0.55 and exp > 0:
                 entrada = round(max(c2["High"], c3["High"]), 2)
                 stop = round(min(c2["Low"], c3["Low"]), 2)
-                risco = entrada - stop
-                alvo = round(entrada + (risco * 2), 2) # Payoff 2:1
-                resultados.append({"Ativo": ticker, "Setup": "Diário (123/Inside)", "WR": wr, "Exp": exp, "Trades": n, "Entrada": entrada, "Alvo (Gain)": alvo, "Stop": stop})
+                resultados.append({"Ativo": ticker, "Setup": "Diário (123/Inside)", "WR": wr, "Exp": exp, "Trades": n, "Entrada": entrada, "Stop": stop})
 
-    # SEMANAL (OBV)
+    # SEMANAL
     df_w["EMA21"] = ta.ema(df_w["Close"], length=21)
     df_w.ta.obv(append=True)
     if len(df_w) > 20 and df_w["OBV"].iloc[-1] > df_w["OBV"].iloc[-2] and df_w["Close"].iloc[-1] > df_w["EMA21"].iloc[-1]:
         max_10 = df_w["High"].rolling(10).max().iloc[-2]
         if df_w["Close"].iloc[-1] > max_10:
-            sinais_hist_w = [k for k in range(30, len(df_w)-5) if df_w["Close"].iloc[k] > df_w["High"].rolling(10).max().iloc[k-1]]
+            sinais_hist_w = []
+            for k in range(30, len(df_w)-5):
+                if df_w["Close"].iloc[k] > df_w["High"].rolling(10).max().iloc[k-1]: sinais_hist_w.append(k)
             wr, exp, n = calcular_estatistica(df_w, sinais_hist_w)
             if wr >= 0.60 and exp > 0:
                 entrada = round(max_10, 2)
                 stop = round(df_w["Low"].iloc[-1], 2)
-                risco = entrada - stop
-                alvo = round(entrada + (risco * 2), 2) # Payoff 2:1
-                resultados.append({"Ativo": ticker, "Setup": "Semanal (OBV)", "WR": wr, "Exp": exp, "Trades": n, "Entrada": entrada, "Alvo (Gain)": alvo, "Stop": stop})
+                resultados.append({"Ativo": ticker, "Setup": "Semanal (OBV)", "WR": wr, "Exp": exp, "Trades": n, "Entrada": entrada, "Stop": stop})
     return resultados
 
 # =====================================================
 # INTERFACE
 # =====================================================
-st.title("🛡️ SETUP RICBRASIL - Scanner Probabilístico")
-st.markdown("Estratégia baseada em **Assimetria de Risco** e **Expectativa Matemática**.")
+st.title("🛡️ SETUP RICBRASIL - Operacional & Probabilístico")
+st.markdown("---")
 
-if st.button("🚀 EXECUTAR VARREDURA"):
+if st.button("🚀 INICIAR VARREDURA"):
     res_final = []
     progress = st.progress(0)
     dados_d = yf.download(ativos_scan, period="3y", interval="1d", group_by="ticker", progress=False)
@@ -131,10 +131,10 @@ if st.button("🚀 EXECUTAR VARREDURA"):
         df_res["WinRate %"] = (df_res["WR"] * 100).round(1)
         df_res["Expectativa %"] = (df_res["Exp"] * 100).round(2)
         df_res = df_res.sort_values(by="Exp", ascending=False)
-        st.success(f"Varredura concluída! {len(df_res)} ativos com sinal e estatística positiva.")
+        st.success(f"Varredura concluída! {len(df_res)} ativos com sinal hoje.")
         
-        # TABELA COM GAIN INCLUSO
-        st.dataframe(df_res[["Ativo", "Setup", "WinRate %", "Expectativa %", "Trades", "Entrada", "Alvo (Gain)", "Stop"]], use_container_width=True)
-        st.info("💡 **Dica do Expert:** O Alvo (Gain) está projetado para um Payoff de 2:1 sobre o risco do Stop.")
+        # TABELA FINAL COM ENTRADA E STOP
+        st.dataframe(df_res[["Ativo", "Setup", "WinRate %", "Expectativa %", "Trades", "Entrada", "Stop"]], use_container_width=True)
+        st.info("💡 Sugestão: Priorize ativos com WinRate > 60% e Expectativa > 2.0%.")
     else:
         st.warning("Nenhum ativo com estatística favorável encontrado hoje.")
