@@ -3,3 +3,7 @@ pandas
 numpy
 yfinance
 ta
+pandas-ta
+
+
+
